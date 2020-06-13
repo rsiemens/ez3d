@@ -13,7 +13,7 @@ pub struct Canvas {
 
 pub struct CameraSettings {
     pub resolution_gate: ResolutionGate,
-    pub focal_length: i32,
+    pub focal_length: f64,
     pub film_aperture_width: f64,
     pub film_aperture_height: f64,
     pub near_clipping_plane: f64,
@@ -23,9 +23,9 @@ pub struct CameraSettings {
 impl CameraSettings {
     fn canvas_coords(&self) -> (f64, f64) {
         let inch_to_mm = 25.4;
-        let top = (self.film_aperture_height * inch_to_mm / 2.0) / self.focal_length as f64
+        let top = (self.film_aperture_height * inch_to_mm / 2.0) / self.focal_length
             * self.near_clipping_plane;
-        let right = (self.film_aperture_width * inch_to_mm / 2.0) / self.focal_length as f64
+        let right = (self.film_aperture_width * inch_to_mm / 2.0) / self.focal_length
             * self.near_clipping_plane;
 
         (top, right)

@@ -51,7 +51,9 @@ pub fn obj_loader(fpath: &str) -> PolygonCollection {
         } else if (parts.len() == 4) && (parts[0] == "f") {
             for t in parts[1..].iter() {
                 let indx: Vec<&str> = t.split("/").collect();
-                polygons.indicies.push(indx[0].parse::<usize>().unwrap() - 1);
+                polygons
+                    .indicies
+                    .push(indx[0].parse::<usize>().unwrap() - 1);
             }
         }
     }

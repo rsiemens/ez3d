@@ -48,7 +48,7 @@ fn main() {
     let polygons = obj_loader("dragon.obj"); // TODO: from command line arg
     let camera = CameraSettings {
         resolution_gate: ResolutionGate::FILL,
-        focal_length: 22,
+        focal_length: 22.0,
         film_aperture_width: 0.980,
         film_aperture_height: 0.735,
         near_clipping_plane: 1.0,
@@ -198,5 +198,9 @@ fn main() {
         Err(e) => panic!("Problem opening file: {:?}", e),
     }
     .unwrap();
-    println!("Done in rendering {} trianges in {:?}", polygons.indicies.len() / 3, start.elapsed().unwrap());
+    println!(
+        "Rendered {} triangles in {:?}",
+        polygons.indicies.len() / 3,
+        start.elapsed().unwrap()
+    );
 }
