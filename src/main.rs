@@ -1,5 +1,6 @@
 mod camera;
 mod geometry;
+mod utils;
 
 use std::fs::File;
 use std::io::Write;
@@ -7,6 +8,7 @@ use std::time::SystemTime;
 
 use crate::camera::{CameraSettings, Canvas, ResolutionGate};
 use crate::geometry::{edge, Matrix, Vec3};
+use crate::utils::{max, min, obj_loader};
 
 fn convert_to_raster(
     v_world: &Vec3,
@@ -39,29 +41,14 @@ fn convert_to_raster(
     }
 }
 
-fn min(a: f64, b: f64) -> f64 {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
-
-fn max(a: f64, b: f64) -> f64 {
-    if a > b {
-        a
-    } else {
-        b
-    }
-}
-
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 fn main() {
+    let polygons = obj_loader("dragon.obj"); // TODO: from command line arg
     let camera = CameraSettings {
         resolution_gate: ResolutionGate::FILL,
-        focal_length: 5,
+        focal_length: 22,
         film_aperture_width: 0.980,
         film_aperture_height: 0.735,
         near_clipping_plane: 1.0,
@@ -77,114 +64,119 @@ fn main() {
         w: [0.0, 0.0, 0.0, 1.0],
     };
 
-    let v0 = Vec3 {
-        x: -48.0,
-        y: -10.0,
-        z: 82.0,
-    };
-    let v1 = Vec3 {
-        x: 29.0,
-        y: -15.0,
-        z: 44.0,
-    };
-    let v2 = Vec3 {
-        x: 13.0,
-        y: 34.0,
-        z: 114.0,
-    };
-
     let start = SystemTime::now();
+    for i in (0..polygons.indicies.len()).step_by(3) {
+        let v0 = Vec3 {
+            x: polygons.verts[polygons.indicies[i]][0],
+            y: polygons.verts[polygons.indicies[i]][1],
+            z: polygons.verts[polygons.indicies[i]][2],
+        };
+        let v1 = Vec3 {
+            x: polygons.verts[polygons.indicies[i + 1]][0],
+            y: polygons.verts[polygons.indicies[i + 1]][1],
+            z: polygons.verts[polygons.indicies[i + 1]][2],
+        };
+        let v2 = Vec3 {
+            x: polygons.verts[polygons.indicies[i + 2]][0],
+            y: polygons.verts[polygons.indicies[i + 2]][1],
+            z: polygons.verts[polygons.indicies[i + 2]][2],
+        };
+        let mut v0_raster = convert_to_raster(
+            &v0,
+            &world_to_camera,
+            &canvas,
+            camera.near_clipping_plane,
+            WIDTH,
+            HEIGHT,
+        );
+        let mut v1_raster = convert_to_raster(
+            &v1,
+            &world_to_camera,
+            &canvas,
+            camera.near_clipping_plane,
+            WIDTH,
+            HEIGHT,
+        );
+        let mut v2_raster = convert_to_raster(
+            &v2,
+            &world_to_camera,
+            &canvas,
+            camera.near_clipping_plane,
+            WIDTH,
+            HEIGHT,
+        );
 
-    let mut v0_raster = convert_to_raster(
-        &v0,
-        &world_to_camera,
-        &canvas,
-        camera.near_clipping_plane,
-        WIDTH,
-        HEIGHT,
-    );
-    let mut v1_raster = convert_to_raster(
-        &v1,
-        &world_to_camera,
-        &canvas,
-        camera.near_clipping_plane,
-        WIDTH,
-        HEIGHT,
-    );
-    let mut v2_raster = convert_to_raster(
-        &v2,
-        &world_to_camera,
-        &canvas,
-        camera.near_clipping_plane,
-        WIDTH,
-        HEIGHT,
-    );
+        // precompute reciprocal of vertex z coord
+        v0_raster.z = 1.0 / v0_raster.z;
+        v1_raster.z = 1.0 / v1_raster.z;
+        v2_raster.z = 1.0 / v2_raster.z;
 
-    // precompute reciprocal of vertex z coord
-    v0_raster.z = 1.0 / v0_raster.z;
-    v1_raster.z = 1.0 / v1_raster.z;
-    v2_raster.z = 1.0 / v2_raster.z;
+        let xmin = min(v0_raster.x, min(v1_raster.x, v2_raster.x));
+        let ymin = min(v0_raster.y, min(v1_raster.y, v2_raster.y));
+        let xmax = max(v0_raster.x, max(v1_raster.x, v2_raster.x));
+        let ymax = max(v0_raster.y, max(v1_raster.y, v2_raster.y));
+        // bounding box
+        let x0 = max(0, xmin.floor() as usize);
+        let x1 = min(WIDTH - 1, xmax.floor() as usize) + 1;
+        let y0 = max(0, ymin.floor() as usize);
+        let y1 = min(HEIGHT - 1, ymax.floor() as usize) + 1;
 
-    let _xmin = min(v0_raster.x, min(v1_raster.x, v2_raster.x));
-    let _ymin = min(v0_raster.y, min(v1_raster.y, v2_raster.y));
-    let _xmax = max(v0_raster.x, max(v1_raster.x, v2_raster.x));
-    let _ymax = max(v0_raster.y, max(v1_raster.y, v2_raster.y));
+        let area = edge(&v0_raster, &v1_raster, &v2_raster);
 
-    let area = edge(&v0_raster, &v1_raster, &v2_raster);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let pixel_sample = Vec3 {
+                    x: x as f64 + 0.5,
+                    y: y as f64 + 0.5,
+                    z: 0.0,
+                };
+                let mut w0 = edge(&v1_raster, &v2_raster, &pixel_sample);
+                let mut w1 = edge(&v2_raster, &v0_raster, &pixel_sample);
+                let mut w2 = edge(&v0_raster, &v1_raster, &pixel_sample);
 
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            let pixel_sample = Vec3 {
-                x: x as f64 + 0.5,
-                y: y as f64 + 0.5,
-                z: 0.0,
-            };
-            let mut w0 = edge(&v1_raster, &v2_raster, &pixel_sample);
-            let mut w1 = edge(&v2_raster, &v0_raster, &pixel_sample);
-            let mut w2 = edge(&v0_raster, &v1_raster, &pixel_sample);
+                if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                    w0 = w0 / area;
+                    w1 = w1 / area;
+                    w2 = w2 / area;
 
-            if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                w0 = w0 / area;
-                w1 = w1 / area;
-                w2 = w2 / area;
+                    // interpolate z
+                    let z = 1.0 / (v0_raster.z * w0 + v1_raster.z * w1 + v2_raster.z * w2);
 
-                // interpolate z
-                let z = 1.0 / (v0_raster.z * w0 + v1_raster.z * w1 + v2_raster.z * w2);
+                    let dx = y * WIDTH + x;
+                    if z < depth_buffer[dx] {
+                        depth_buffer[dx] = z;
 
-                let dx = y * WIDTH + x;
-                if z < depth_buffer[dx] {
-                    depth_buffer[dx] = z;
+                        let v0_cam = world_to_camera.mul(&v0);
+                        let v1_cam = world_to_camera.mul(&v1);
+                        let v2_cam = world_to_camera.mul(&v2);
 
-                    let v0_cam = world_to_camera.mul(&v0);
-                    let v1_cam = world_to_camera.mul(&v1);
-                    let v2_cam = world_to_camera.mul(&v2);
+                        let px = (v0_cam.x / -v0_cam.z) * w0
+                            + (v1_cam.x / -v1_cam.z) * w1
+                            + (v2_cam.x / -v2_cam.z) * w2;
+                        let py = (v0_cam.y / -v0_cam.z) * w0
+                            + (v1_cam.y / -v1_cam.z) * w1
+                            + (v2_cam.y / -v2_cam.z) * w2;
 
-                    let px = (v0_cam.x / -v0_cam.z) * w0
-                        + (v1_cam.x / -v1_cam.z) * w1
-                        + (v2_cam.x / -v2_cam.z) * w2;
-                    let py = (v0_cam.y / -v0_cam.z) * w0
-                        + (v1_cam.y / -v1_cam.z) * w1
-                        + (v2_cam.y / -v2_cam.z) * w2;
+                        let pt = Vec3 {
+                            x: px * z,
+                            y: py * z,
+                            z: -z,
+                        };
 
-                    let pt = Vec3 {
-                        x: px * z,
-                        y: py * z,
-                        z: -z,
-                    };
+                        let mut n = (v1_cam - v0_cam.clone()).cross(&(v2_cam - v0_cam));
+                        let mut view_direction = Vec3 {
+                            x: -pt.x,
+                            y: -pt.y,
+                            z: -pt.z,
+                        };
 
-                    let mut n = (v1_cam - v0_cam.clone()).cross(&(v2_cam - v0_cam));
-                    let mut view_direction = Vec3 {
-                        x: pt.x,
-                        y: pt.y,
-                        z: pt.z,
-                    };
+                        n.normalize();
+                        view_direction.normalize();
 
-                    n.normalize();
-                    view_direction.normalize();
-
-                    let n_dot_view = max(0.0, n.dot(&view_direction));
-                    let color = (n_dot_view * 255.0).floor() as u8;
-                    frame_buffer[dx] = (color, color, color);
+                        let n_dot_view = max(0.0, n.dot(&view_direction));
+                        let color = (n_dot_view * 255.0).floor() as u8;
+                        frame_buffer[dx] = (color, color, color);
+                    }
                 }
             }
         }
@@ -202,8 +194,9 @@ fn main() {
     }
 
     match File::create("img.ppm") {
-        Ok(mut f) => f.write_all(&result_s.into_bytes()), // TODO: Fix me
+        Ok(mut f) => f.write_all(&result_s.into_bytes()),
         Err(e) => panic!("Problem opening file: {:?}", e),
-    }.unwrap();
-    println!("Done in {:?}", start.elapsed().unwrap());
+    }
+    .unwrap();
+    println!("Done in rendering {} trianges in {:?}", polygons.indicies.len() / 3, start.elapsed().unwrap());
 }
