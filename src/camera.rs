@@ -1,3 +1,5 @@
+const INCH_TO_MM: f64 = 25.4;
+
 #[allow(dead_code)]
 pub enum ResolutionGate {
     FILL,
@@ -22,10 +24,9 @@ pub struct CameraSettings {
 
 impl CameraSettings {
     fn canvas_coords(&self) -> (f64, f64) {
-        let inch_to_mm = 25.4;
-        let top = (self.film_aperture_height * inch_to_mm / 2.0) / self.focal_length
+        let top = (self.film_aperture_height * INCH_TO_MM / 2.0) / self.focal_length
             * self.near_clipping_plane;
-        let right = (self.film_aperture_width * inch_to_mm / 2.0) / self.focal_length
+        let right = (self.film_aperture_width * INCH_TO_MM / 2.0) / self.focal_length
             * self.near_clipping_plane;
 
         (top, right)

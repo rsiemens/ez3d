@@ -2,13 +2,33 @@ mod camera;
 mod geometry;
 mod utils;
 
+use std::env;
 use std::fs::File;
 use std::io::Write;
+use std::process;
 use std::time::SystemTime;
 
 use crate::camera::{CameraSettings, Canvas, ResolutionGate};
 use crate::geometry::{edge, Matrix, Vec3};
-use crate::utils::{max, min, obj_loader};
+use crate::utils::{max, min, PolygonCollection};
+
+const WIDTH: usize = 640;
+const HEIGHT: usize = 480;
+
+// Get the bounding box coords around a triangle
+fn bounding_box(tri: &Vec<Vec3>) -> (usize, usize, usize, usize) {
+    let xmin = min(tri[0].x, min(tri[1].x, tri[2].x));
+    let ymin = min(tri[0].y, min(tri[1].y, tri[2].y));
+    let xmax = max(tri[0].x, max(tri[1].x, tri[2].x));
+    let ymax = max(tri[0].y, max(tri[1].y, tri[2].y));
+
+    let x0 = max(0, xmin.floor() as usize);
+    let x1 = min(WIDTH - 1, xmax.floor() as usize) + 1;
+    let y0 = max(0, ymin.floor() as usize);
+    let y1 = min(HEIGHT - 1, ymax.floor() as usize) + 1;
+
+    (x0, x1, y0, y1)
+}
 
 fn convert_to_raster(
     v_world: &Vec3,
@@ -32,20 +52,21 @@ fn convert_to_raster(
         z: 0.0,
     };
 
-    // to raster space
     Vec3 {
         x: (p_ndc.x + 1.0) / 2.0 * image_w as f64,
-        // in raster space y is down so invert
-        y: (1.0 - p_ndc.y) / 2.0 * image_h as f64,
-        z: -p_camera.z,
+        y: (1.0 - p_ndc.y) / 2.0 * image_h as f64, // in raster space y is down so invert
+        z: 1.0 / -p_camera.z,                      // precompute reciprocal
     }
 }
 
-const WIDTH: usize = 640;
-const HEIGHT: usize = 480;
-
 fn main() {
-    let polygons = obj_loader("dragon.obj"); // TODO: from command line arg
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() != 2 {
+        println!("Usage: ez3d <obj file>");
+        process::exit(1);
+    }
+
     let camera = CameraSettings {
         resolution_gate: ResolutionGate::FILL,
         focal_length: 22.0,
@@ -54,101 +75,63 @@ fn main() {
         near_clipping_plane: 1.0,
         far_clipping_plan: 1000.0,
     };
-    let canvas = camera.scale_canvas(WIDTH, HEIGHT);
-    let mut frame_buffer = [(255, 255, 255); 640 * 480]; // TODO: fixme
-    let mut depth_buffer = [camera.far_clipping_plan; 640 * 480]; // TODO: fixme
     let world_to_camera = Matrix {
         x: [1.0, 0.0, 0.0, 0.0],
         y: [0.0, 1.0, 0.0, 0.0],
         z: [0.0, 0.0, 1.0, -2.0],
         w: [0.0, 0.0, 0.0, 1.0],
     };
+    let canvas = camera.scale_canvas(WIDTH, HEIGHT);
+    let mut frame_buffer = [(255, 255, 255); WIDTH * HEIGHT];
+    let mut depth_buffer = [camera.far_clipping_plan; WIDTH * HEIGHT];
+    let polygons = PolygonCollection::from_obj(&args[1]);
 
+    println!("Rendering {} triangles", polygons.len());
     let start = SystemTime::now();
-    for i in (0..polygons.indicies.len()).step_by(3) {
-        let v0 = Vec3 {
-            x: polygons.verts[polygons.indicies[i]][0],
-            y: polygons.verts[polygons.indicies[i]][1],
-            z: polygons.verts[polygons.indicies[i]][2],
-        };
-        let v1 = Vec3 {
-            x: polygons.verts[polygons.indicies[i + 1]][0],
-            y: polygons.verts[polygons.indicies[i + 1]][1],
-            z: polygons.verts[polygons.indicies[i + 1]][2],
-        };
-        let v2 = Vec3 {
-            x: polygons.verts[polygons.indicies[i + 2]][0],
-            y: polygons.verts[polygons.indicies[i + 2]][1],
-            z: polygons.verts[polygons.indicies[i + 2]][2],
-        };
-        let mut v0_raster = convert_to_raster(
-            &v0,
-            &world_to_camera,
-            &canvas,
-            camera.near_clipping_plane,
-            WIDTH,
-            HEIGHT,
-        );
-        let mut v1_raster = convert_to_raster(
-            &v1,
-            &world_to_camera,
-            &canvas,
-            camera.near_clipping_plane,
-            WIDTH,
-            HEIGHT,
-        );
-        let mut v2_raster = convert_to_raster(
-            &v2,
-            &world_to_camera,
-            &canvas,
-            camera.near_clipping_plane,
-            WIDTH,
-            HEIGHT,
-        );
+    for triangle in polygons {
+        let raster: Vec<Vec3> = triangle
+            .iter()
+            .map(|v| {
+                convert_to_raster(
+                    &v,
+                    &world_to_camera,
+                    &canvas,
+                    camera.near_clipping_plane,
+                    WIDTH,
+                    HEIGHT,
+                )
+            })
+            .collect();
 
-        // precompute reciprocal of vertex z coord
-        v0_raster.z = 1.0 / v0_raster.z;
-        v1_raster.z = 1.0 / v1_raster.z;
-        v2_raster.z = 1.0 / v2_raster.z;
+        let area = edge(&raster[0], &raster[1], &raster[2]);
+        let (xmin, xmax, ymin, ymax) = bounding_box(&raster);
 
-        let xmin = min(v0_raster.x, min(v1_raster.x, v2_raster.x));
-        let ymin = min(v0_raster.y, min(v1_raster.y, v2_raster.y));
-        let xmax = max(v0_raster.x, max(v1_raster.x, v2_raster.x));
-        let ymax = max(v0_raster.y, max(v1_raster.y, v2_raster.y));
-        // bounding box
-        let x0 = max(0, xmin.floor() as usize);
-        let x1 = min(WIDTH - 1, xmax.floor() as usize) + 1;
-        let y0 = max(0, ymin.floor() as usize);
-        let y1 = min(HEIGHT - 1, ymax.floor() as usize) + 1;
-
-        let area = edge(&v0_raster, &v1_raster, &v2_raster);
-
-        for y in y0..y1 {
-            for x in x0..x1 {
+        for y in ymin..ymax {
+            for x in xmin..xmax {
                 let pixel_sample = Vec3 {
                     x: x as f64 + 0.5,
                     y: y as f64 + 0.5,
                     z: 0.0,
                 };
-                let mut w0 = edge(&v1_raster, &v2_raster, &pixel_sample);
-                let mut w1 = edge(&v2_raster, &v0_raster, &pixel_sample);
-                let mut w2 = edge(&v0_raster, &v1_raster, &pixel_sample);
+                let mut w0 = edge(&raster[1], &raster[2], &pixel_sample);
+                let mut w1 = edge(&raster[2], &raster[0], &pixel_sample);
+                let mut w2 = edge(&raster[0], &raster[1], &pixel_sample);
 
                 if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
                     w0 = w0 / area;
                     w1 = w1 / area;
                     w2 = w2 / area;
 
-                    // interpolate z
-                    let z = 1.0 / (v0_raster.z * w0 + v1_raster.z * w1 + v2_raster.z * w2);
+                    // interpolate z depth in raster space
+                    let z = 1.0 / (raster[0].z * w0 + raster[1].z * w1 + raster[2].z * w2);
 
                     let dx = y * WIDTH + x;
                     if z < depth_buffer[dx] {
                         depth_buffer[dx] = z;
 
-                        let v0_cam = world_to_camera.mul(&v0);
-                        let v1_cam = world_to_camera.mul(&v1);
-                        let v2_cam = world_to_camera.mul(&v2);
+                        let v0_cam = world_to_camera.mul(&triangle[0]);
+                        let v1_cam = world_to_camera.mul(&triangle[1]);
+                        let v2_cam = world_to_camera.mul(&triangle[2]);
 
                         let px = (v0_cam.x / -v0_cam.z) * w0
                             + (v1_cam.x / -v1_cam.z) * w1
@@ -198,9 +181,5 @@ fn main() {
         Err(e) => panic!("Problem opening file: {:?}", e),
     }
     .unwrap();
-    println!(
-        "Rendered {} triangles in {:?}",
-        polygons.indicies.len() / 3,
-        start.elapsed().unwrap()
-    );
+    println!("Done in {:?}", start.elapsed().unwrap());
 }
