@@ -53,22 +53,25 @@ impl Iterator for PolygonCollection {
     type Item = Vec<Vec3>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let verts = &self.verts;
+        let indicies = &self.indicies;
+
         if self.cursor < self.indicies.len() {
             let triangle = vec![
                 Vec3 {
-                    x: self.verts[self.indicies[self.cursor]][0],
-                    y: self.verts[self.indicies[self.cursor]][1],
-                    z: self.verts[self.indicies[self.cursor]][2],
+                    x: verts[indicies[self.cursor]][0],
+                    y: verts[indicies[self.cursor]][1],
+                    z: verts[indicies[self.cursor]][2],
                 },
                 Vec3 {
-                    x: self.verts[self.indicies[self.cursor + 1]][0],
-                    y: self.verts[self.indicies[self.cursor + 1]][1],
-                    z: self.verts[self.indicies[self.cursor + 1]][2],
+                    x: verts[indicies[self.cursor + 1]][0],
+                    y: verts[indicies[self.cursor + 1]][1],
+                    z: verts[indicies[self.cursor + 1]][2],
                 },
                 Vec3 {
-                    x: self.verts[self.indicies[self.cursor + 2]][0],
-                    y: self.verts[self.indicies[self.cursor + 2]][1],
-                    z: self.verts[self.indicies[self.cursor + 2]][2],
+                    x: verts[indicies[self.cursor + 2]][0],
+                    y: verts[indicies[self.cursor + 2]][1],
+                    z: verts[indicies[self.cursor + 2]][2],
                 },
             ];
             self.cursor += 3;

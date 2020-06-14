@@ -22,12 +22,12 @@ fn bounding_box(tri: &Vec<Vec3>) -> (usize, usize, usize, usize) {
     let xmax = max(tri[0].x, max(tri[1].x, tri[2].x));
     let ymax = max(tri[0].y, max(tri[1].y, tri[2].y));
 
-    let x0 = max(0, xmin.floor() as usize);
-    let x1 = min(WIDTH - 1, xmax.floor() as usize) + 1;
-    let y0 = max(0, ymin.floor() as usize);
-    let y1 = min(HEIGHT - 1, ymax.floor() as usize) + 1;
-
-    (x0, x1, y0, y1)
+    (
+        max(0, xmin.floor() as usize),
+        min(WIDTH - 1, xmax.floor() as usize) + 1,
+        max(0, ymin.floor() as usize),
+        min(HEIGHT - 1, ymax.floor() as usize) + 1,
+    )
 }
 
 fn convert_to_raster(
